@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de Gastos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+    <div id="app" class="w-full max-w-2xl bg-white rounded-xl shadow-lg p-6">
+        <div class="flex justify-center mb-6">
+            <button id="tab-add" class="tab-button bg-blue-600 text-white font-semibold py-2 px-6 rounded-l-full focus:outline-none transition-colors duration-300">
+                Adicionar Gasto
+            </button>
+            <button id="tab-view" class="tab-button bg-gray-200 text-gray-800 font-semibold py-2 px-6 rounded-r-full focus:outline-none transition-colors duration-300">
+                Visualizar
+            </button>
+        </div>
+
+        <!-- Section: Adicionar Gasto -->
+        <div id="add-section" class="tab-content">
+            <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Adicionar Novo Gasto</h1>
+            <form id="expenseForm" class="space-y-4">
+                <input type="number" id="expenseValue" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" placeholder="Valor (ex: 50.50)" step="0.01" required>
+                <input type="text" id="expenseDesc" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" placeholder="Descrição (ex: Jantar com amigos)" required>
+                <input type="text" id="expenseCategory" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" placeholder="Categoria (ex: Alimentação, Transporte)" required>
+                <input type="number" id="expenseDuration" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" placeholder="Parcelas ou meses recorrentes (opcional)" min="1">
+                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300">
+                    Registrar Gasto
+                </button>
+            </form>
+            <div id="message" class="mt-4 text-center text-green-600 font-bold hidden">Gasto registrado com sucesso!</div>
+        </div>
+
+        <!-- Section: Visualizar Gastos -->
+        <div id="view-section" class="tab-content hidden">
+            <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Seus Gastos</h1>
+
+            <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                <h2 id="chartTitle" class="text-xl font-semibold text-center text-gray-700 mb-4">Gastos por Categoria</h2>
+                <div class="flex justify-center mb-4">
+                    <select id="monthSelector" class="px-4 py-2 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500"></select>
+                </div>
+                <div class="w-3/4 mx-auto my-4">
+                    <canvas id="categoryChart"></canvas>
+                </div>
+            </div>
+
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Extrato de Gastos</h2>
+            <div id="expenseList" class="bg-gray-50 rounded-lg p-4 space-y-4">
+                <!-- Expense items will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Editar Gasto</h3>
+            <form id="editForm" class="space-y-4">
+                <input type="hidden" id="editId">
+                <input type="number" id="editValue" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" step="0.01" required>
+                <input type="text" id="editDesc" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" required>
+                <input type="text" id="editCategory" class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 focus:outline-none focus:border-blue-500 transition-colors" required>
+                <div class="flex justify-end space-x-2 mt-4">
+                    <button type="button" id="cancelEdit" class="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase config
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        // State variables
+        let chartInstance = null;
+        let allExpenses = [];
+        let currentUserId = null;
+        const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+        // Sign in anonymously to get a user ID for Firestore
+        signInAnonymously(auth).then((userCredential) => {
+            currentUserId = userCredential.user.uid;
+            console.log("Usuário autenticado:", currentUserId);
+            // Fetch initial data after authentication
+            setupRealtimeListener();
+        }).catch((error) => {
+            console.error("Erro na autenticação anônima:", error);
+        });
+
+        // Get elements
+        const form = document.getElementById('expenseForm');
+        const expenseList = document.getElementById('expenseList');
+        const chartCanvas = document.getElementById('categoryChart');
+        const chartTitle = document.getElementById('chartTitle');
+        const monthSelector = document.getElementById('monthSelector');
+        const tabAdd = document.getElementById('tab-add');
+        const tabView = document.getElementById('tab-view');
+        const addSection = document.getElementById('add-section');
+        const viewSection = document.getElementById('view-section');
+        const messageDiv = document.getElementById('message');
+        const editModal = document.getElementById('editModal');
+        const editForm = document.getElementById('editForm');
+        const cancelEditButton = document.getElementById('cancelEdit');
+
+        // Tab switching logic
+        tabAdd.addEventListener('click', () => {
+            tabAdd.classList.add('bg-blue-600', 'text-white');
+            tabAdd.classList.remove('bg-gray-200', 'text-gray-800');
+            tabView.classList.remove('bg-blue-600', 'text-white');
+            tabView.classList.add('bg-gray-200', 'text-gray-800');
+            addSection.classList.remove('hidden');
+            viewSection.classList.add('hidden');
+        });
+
+        tabView.addEventListener('click', () => {
+            tabView.classList.add('bg-blue-600', 'text-white');
+            tabView.classList.remove('bg-gray-200', 'text-gray-800');
+            tabAdd.classList.remove('bg-blue-600', 'text-white');
+            tabAdd.classList.add('bg-gray-200', 'text-gray-800');
+            addSection.classList.add('hidden');
+            viewSection.classList.remove('hidden');
+            // Force update on view tab change
+            updateUI();
+        });
+
+        // Function to handle form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const value = parseFloat(document.getElementById('expenseValue').value);
+            const desc = document.getElementById('expenseDesc').value;
+            const category = document.getElementById('expenseCategory').value;
+            const duration = parseInt(document.getElementById('expenseDuration').value, 10) || 1;
+
+            if (isNaN(value) || value <= 0) {
+                alert('Por favor, insira um valor válido.');
+                return;
+            }
+
+            const now = new Date();
+
+            for (let i = 0; i < duration; i++) {
+                const futureDate = new Date(now.getFullYear(), now.getMonth() + i, now.getDate());
+                await addExpense(value / duration, desc, category, futureDate);
+            }
+
+            form.reset();
+            showMessage('Gasto(s) registrado(s)!');
+        });
+
+        // Add expense to Firestore
+        async function addExpense(value, desc, category, date) {
+            try {
+                await addDoc(collection(db, `/artifacts/${appId}/users/${currentUserId}/expenses`), {
+                    value,
+                    description: desc,
+                    category,
+                    timestamp: date,
+                });
+            } catch (e) {
+                console.error("Erro ao adicionar documento: ", e);
+            }
+        }
+
+        // Show a temporary message
+        function showMessage(msg) {
+            messageDiv.textContent = msg;
+            messageDiv.classList.remove('hidden');
+            setTimeout(() => {
+                messageDiv.classList.add('hidden');
+            }, 3000);
+        }
+
+        // Realtime listener for expenses
+        function setupRealtimeListener() {
+            if (!currentUserId) {
+                console.log("Aguardando autenticação do usuário...");
+                return;
+            }
+            
+            const q = query(collection(db, `/artifacts/${appId}/users/${currentUserId}/expenses`));
+            
+            onSnapshot(q, (snapshot) => {
+                allExpenses = [];
+                snapshot.forEach((doc) => {
+                    allExpenses.push({ id: doc.id, ...doc.data() });
+                });
+                
+                populateMonthSelector();
+                updateUI();
+            });
+        }
+        
+        function populateMonthSelector() {
+            const uniqueMonths = new Set();
+            allExpenses.forEach(expense => {
+                const date = expense.timestamp.toDate();
+                const monthYear = `${date.getFullYear()}-${date.getMonth()}`;
+                uniqueMonths.add(monthYear);
+            });
+
+            const sortedMonths = Array.from(uniqueMonths).sort((a, b) => {
+                const [yearA, monthA] = a.split('-').map(Number);
+                const [yearB, monthB] = b.split('-').map(Number);
+                return (yearB - yearA) || (monthB - monthA);
+            });
+
+            monthSelector.innerHTML = '';
+            sortedMonths.forEach(monthYear => {
+                const [year, month] = monthYear.split('-').map(Number);
+                const option = document.createElement('option');
+                option.value = monthYear;
+                option.textContent = `${monthNames[month]} de ${year}`;
+                monthSelector.appendChild(option);
+            });
+
+            // Set default month to current month if expenses exist
+            if (sortedMonths.length > 0) {
+                const now = new Date();
+                const currentMonthYear = `${now.getFullYear()}-${now.getMonth()}`;
+                if (sortedMonths.includes(currentMonthYear)) {
+                    monthSelector.value = currentMonthYear;
+                } else {
+                    monthSelector.value = sortedMonths[0]; // Default to the most recent month with data
+                }
+            }
+        }
+
+        function updateUI() {
+            const selectedMonthYear = monthSelector.value;
+            const [selectedYear, selectedMonth] = selectedMonthYear.split('-').map(Number);
+
+            const filteredExpenses = allExpenses.filter(expense => {
+                const date = expense.timestamp.toDate();
+                return date.getFullYear() === selectedYear && date.getMonth() === selectedMonth;
+            });
+            
+            renderExpenses(filteredExpenses);
+            renderChart(filteredExpenses, `${monthNames[selectedMonth]} de ${selectedYear}`);
+        }
+
+        monthSelector.addEventListener('change', updateUI);
+
+        // Render expenses list
+        function renderExpenses(expenses) {
+            expenses.sort((a, b) => b.timestamp.toDate() - a.timestamp.toDate());
+            
+            expenseList.innerHTML = '';
+            if (expenses.length === 0) {
+                const noExpensesMessage = document.createElement('p');
+                noExpensesMessage.textContent = 'Nenhum gasto registrado neste mês.';
+                noExpensesMessage.className = 'text-gray-500 text-center py-4';
+                expenseList.appendChild(noExpensesMessage);
+                return;
+            }
+
+            expenses.forEach(expense => {
+                const li = document.createElement('div');
+                li.className = 'flex items-center justify-between bg-white rounded-lg shadow-sm p-3 border border-gray-200';
+                
+                const date = expense.timestamp.toDate();
+                const dateFormatted = date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit' });
+                
+                li.innerHTML = `
+                    <div>
+                        <span class="text-sm text-gray-500">${dateFormatted}</span>
+                        <p class="font-semibold text-gray-800">${expense.description}</p>
+                        <p class="text-gray-600 text-sm">${expense.category}</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="font-bold text-gray-800">R$ ${expense.value.toFixed(2)}</span>
+                        <button class="edit-btn text-blue-500 hover:text-blue-700" data-id="${expense.id}" data-value="${expense.value}" data-desc="${expense.description}" data-category="${expense.category}">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="delete-btn text-red-500 hover:text-red-700" data-id="${expense.id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+                expenseList.appendChild(li);
+            });
+
+            // Add event listeners for new buttons
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', handleDelete);
+            });
+            document.querySelectorAll('.edit-btn').forEach(btn => {
+                btn.addEventListener('click', handleEdit);
+            });
+        }
+        
+        // Render chart
+        function renderChart(expenses, title) {
+            const categoryData = expenses.reduce((acc, expense) => {
+                const category = expense.category || 'Outros';
+                acc[category] = (acc[category] || 0) + expense.value;
+                return acc;
+            }, {});
+
+            const categories = Object.keys(categoryData);
+            const values = Object.values(categoryData);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const backgroundColors = [
+                'rgba(255, 99, 132, 0.8)', 'rgba(54, 162, 235, 0.8)', 'rgba(255, 206, 86, 0.8)',
+                'rgba(75, 192, 192, 0.8)', 'rgba(153, 102, 255, 0.8)', 'rgba(255, 159, 64, 0.8)',
+                'rgba(199, 199, 199, 0.8)', 'rgba(83, 102, 255, 0.8)', 'rgba(120, 25, 20, 0.8)'
+            ];
+            
+            chartTitle.textContent = `Gastos de ${title}`;
+
+            chartInstance = new Chart(chartCanvas, {
+                type: 'pie',
+                data: {
+                    labels: categories,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: backgroundColors.slice(0, categories.length),
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 14,
+                                    family: 'Inter'
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed !== null) {
+                                        label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Handle delete expense
+        async function handleDelete(e) {
+            const expenseId = e.currentTarget.dataset.id;
+            try {
+                await deleteDoc(doc(db, `/artifacts/${appId}/users/${currentUserId}/expenses`, expenseId));
+            } catch (error) {
+                console.error("Erro ao excluir documento: ", error);
+            }
+        }
+
+        // Handle edit expense
+        function handleEdit(e) {
+            const expenseId = e.currentTarget.dataset.id;
+            const expenseValue = e.currentTarget.dataset.value;
+            const expenseDesc = e.currentTarget.dataset.desc;
+            const expenseCategory = e.currentTarget.dataset.category;
+
+            document.getElementById('editId').value = expenseId;
+            document.getElementById('editValue').value = expenseValue;
+            document.getElementById('editDesc').value = expenseDesc;
+            document.getElementById('editCategory').value = expenseCategory;
+
+            editModal.classList.remove('hidden');
+        }
+
+        // Handle edit form submission
+        editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editId').value;
+            const value = parseFloat(document.getElementById('editValue').value);
+            const desc = document.getElementById('editDesc').value;
+            const category = document.getElementById('editCategory').value;
+
+            if (isNaN(value) || value <= 0) {
+                alert('Por favor, insira um valor válido.');
+                return;
+            }
+
+            try {
+                await updateDoc(doc(db, `/artifacts/${appId}/users/${currentUserId}/expenses`, id), {
+                    value,
+                    description: desc,
+                    category
+                });
+                editModal.classList.add('hidden');
+            } catch (error) {
+                console.error("Erro ao atualizar documento: ", error);
+            }
+        });
+
+        // Cancel edit
+        cancelEditButton.addEventListener('click', () => {
+            editModal.classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
+
