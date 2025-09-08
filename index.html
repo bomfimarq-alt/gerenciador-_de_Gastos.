@@ -88,25 +88,13 @@
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        
-        // State variables
+        let app;
+        let db;
+        let auth;
         let chartInstance = null;
         let allExpenses = [];
         let currentUserId = null;
         const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-
-        // Sign in anonymously to get a user ID for Firestore
-        signInAnonymously(auth).then((userCredential) => {
-            currentUserId = userCredential.user.uid;
-            console.log("Usuário autenticado:", currentUserId);
-            // Fetch initial data after authentication
-            setupRealtimeListener();
-        }).catch((error) => {
-            console.error("Erro na autenticação anônima:", error);
-        });
 
         // Get elements
         const form = document.getElementById('expenseForm');
@@ -153,7 +141,7 @@
             const duration = parseInt(document.getElementById('expenseDuration').value, 10) || 1;
 
             if (isNaN(value) || value <= 0) {
-                alert('Por favor, insira um valor válido.');
+                //alert('Por favor, insira um valor válido.');
                 return;
             }
 
@@ -408,7 +396,7 @@
             const category = document.getElementById('editCategory').value;
 
             if (isNaN(value) || value <= 0) {
-                alert('Por favor, insira um valor válido.');
+                //alert('Por favor, insira um valor válido.');
                 return;
             }
 
@@ -428,6 +416,27 @@
         cancelEditButton.addEventListener('click', () => {
             editModal.classList.add('hidden');
         });
+        
+        // Final initialization
+        async function initApp() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                const userCredential = await signInAnonymously(auth);
+                currentUserId = userCredential.user.uid;
+                console.log("Usuário autenticado:", currentUserId);
+                
+                setupRealtimeListener();
+                
+            } catch (error) {
+                console.error("Erro na inicialização do app:", error);
+                
+            }
+        }
+        
+        initApp();
     </script>
 </body>
 </html>
